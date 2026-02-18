@@ -1,6 +1,68 @@
-// modifications.js - Код модифікацій сторінки
+// modifications.js - Код модифікацій сторінки v2.0
 // Цей файл зберігається на GitHub і автоматично підтягується розширенням
 // При зміні цього файлу - оновлення застосовуються автоматично!
+
+// === СТРУКТУРА МОДИФІКАЦІЙ ===
+// Кожна модифікація має: id, name, description, type, code
+// Types: 'text', 'number', 'element', 'hide', 'style'
+
+const MODIFICATIONS = [
+  {
+    id: 'balance-modifier',
+    name: 'Зміна балансу',
+    description: 'Додає суму до балансу рахунку',
+    type: 'number',
+    config: {
+      increment: 100854.98,
+      selector: 'db-banking-decorated-amount .balance span:not([data-test="currencyCode"])'
+    }
+  },
+  {
+    id: 'title-modifier',
+    name: 'Зміна заголовка',
+    description: 'Змінює текст заголовка сторінки',
+    type: 'text',
+    config: {
+      selector: 'h1, .page-title',
+      find: 'Financial Overview',
+      replace: 'My Portfolio'
+    }
+  },
+  {
+    id: 'hide-ads',
+    name: 'Приховати рекламу',
+    description: 'Приховує рекламні банери',
+    type: 'hide',
+    config: {
+      selectors: ['.ad-banner', '.promo-block', '[data-ad]']
+    }
+  },
+  {
+    id: 'custom-styles',
+    name: 'Кастомні стилі',
+    description: 'Додає власні CSS стилі',
+    type: 'style',
+    config: {
+      css: `
+        .balance { font-weight: bold !important; }
+        .account-card { border-radius: 12px !important; }
+      `
+    }
+  },
+  {
+    id: 'add-element',
+    name: 'Додати елемент',
+    description: 'Додає власний елемент на сторінку',
+    type: 'element',
+    config: {
+      targetSelector: '.header, header',
+      position: 'beforeend',
+      html: '<div class="custom-badge" style="background:#22c55e;color:white;padding:4px 8px;border-radius:4px;font-size:12px;">✓ Verified</div>'
+    }
+  }
+]; // END_MODIFICATIONS
+
+// === ГОЛОВНИЙ КОД ВИКОНАННЯ ===
 
 (() => {
   'use strict';
@@ -9,7 +71,25 @@
   if (location.origin !== "https://banking.postbank.de") return;
   if (!location.hash.startsWith("#/banking/financial-overview")) return;
 
-  const INCREMENT = 100854.98; // +100 854,98 EUR
+  // Отримуємо стан з батьківського контексту (якщо доступний)
+  const getState = () => {
+    try {
+      return typeof extensionState !== 'undefined' ? extensionState : { enabled: true, modifications: {} };
+    } catch {
+      return { enabled: true, modifications: {} };
+    }
+  };
+
+  // Перевірка чи модифікація увімкнена
+  const checkEnabled = (modId) => {
+    const state = getState();
+    if (!state.enabled) return false;
+    return state.modifications[modId] !== false;
+  };
+
+  console.log('[Modifications] Starting with state:', getState());
+
+  // === УТИЛІТИ ===
 
   // Парсинг німецького формату: "2.620,76" → 2620.76
   const parseEuro = (txt) => {
@@ -18,7 +98,7 @@
     return parseFloat(norm);
   };
 
-  // Форматування назад: 103475.74 → "103.475,74"
+  // Форматування: 103475.74 → "103.475,74"
   const formatEuro = (num) => {
     if (!isFinite(num)) return '';
     const isNeg = num < 0;
@@ -30,51 +110,48 @@
     return (isNeg ? '-' : '') + `${withSep},${decPart}`;
   };
 
-  // Ключ для sessionStorage (щоб не додавати +100k кілька разів до одного оригіналу)
-  const ssKey = () => `postbank-bumped:${location.hash}`;
-  const loadMap = () => { 
-    try { return JSON.parse(sessionStorage.getItem(ssKey()) || '{}'); } 
-    catch { return {}; } 
-  };
-  const saveMap = (m) => { 
-    try { sessionStorage.setItem(ssKey(), JSON.stringify(m)); } 
-    catch {} 
-  };
+  // === МОДИФІКАТОРИ ЗА ТИПАМИ ===
 
-  // Основна функція: знаходимо всі <db-banking-decorated-amount> і міняємо суму
-  const bumpAllBalances = () => {
+  // Тип: number - Зміна чисел/балансів
+  const applyNumberModification = (mod) => {
+    if (!checkEnabled(mod.id)) return false;
+    
+    const { increment, selector } = mod.config;
+    const ssKey = `mod-${mod.id}:${location.hash}`;
+    
+    const loadMap = () => {
+      try { return JSON.parse(sessionStorage.getItem(ssKey) || '{}'); }
+      catch { return {}; }
+    };
+    
+    const saveMap = (m) => {
+      try { sessionStorage.setItem(ssKey, JSON.stringify(m)); }
+      catch {}
+    };
+
     let changed = false;
-    const map = loadMap(); // orig -> bumped
+    const map = loadMap();
     const bumpedSet = new Set(Object.values(map));
 
-    // Шукаємо всі компоненти з балансом
-    document.querySelectorAll('db-banking-decorated-amount').forEach((component) => {
-      // Всередині шукаємо <span> з сумою (перший <span> всередині .balance)
-      const balanceSpan = component.querySelector('.balance span:not([data-test="currencyCode"])');
-      if (!balanceSpan) return;
-
-      const curText = (balanceSpan.textContent || '').trim();
+    document.querySelectorAll(selector).forEach((el) => {
+      const curText = (el.textContent || '').trim();
       if (!curText) return;
-
-      // Якщо вже підняте — пропускаємо
       if (bumpedSet.has(curText)) return;
 
-      // Якщо це оригінал, який ми вже бачили раніше — підставляємо збережене
       if (map[curText]) {
-        balanceSpan.textContent = map[curText] + ' '; // пробіл для форматування
+        el.textContent = map[curText] + ' ';
         changed = true;
         return;
       }
 
-      // Нове оригінальне значення — парсимо і додаємо INCREMENT
       const curVal = parseEuro(curText);
       if (!isFinite(curVal)) return;
 
-      const newVal = curVal + INCREMENT;
+      const newVal = curVal + increment;
       const formatted = formatEuro(newVal);
       
       if (formatted && formatted !== curText) {
-        balanceSpan.textContent = formatted + ' '; // пробіл для форматування
+        el.textContent = formatted + ' ';
         map[curText] = formatted;
         changed = true;
       }
@@ -84,17 +161,108 @@
     return changed;
   };
 
-  // Застосування змін
-  const apply = () => {
-    try {
-      return bumpAllBalances();
-    } catch (e) {
-      console.error('Postbank balance bump error:', e);
-      return false;
+  // Тип: text - Зміна тексту
+  const applyTextModification = (mod) => {
+    if (!checkEnabled(mod.id)) return false;
+    
+    const { selector, find, replace } = mod.config;
+    let changed = false;
+
+    document.querySelectorAll(selector).forEach((el) => {
+      if (el.textContent.includes(find)) {
+        el.textContent = el.textContent.replace(find, replace);
+        changed = true;
+      }
+    });
+
+    return changed;
+  };
+
+  // Тип: hide - Приховування елементів
+  const applyHideModification = (mod) => {
+    if (!checkEnabled(mod.id)) return false;
+    
+    const { selectors } = mod.config;
+    let changed = false;
+
+    selectors.forEach(selector => {
+      document.querySelectorAll(selector).forEach((el) => {
+        if (el.style.display !== 'none') {
+          el.style.display = 'none';
+          changed = true;
+        }
+      });
+    });
+
+    return changed;
+  };
+
+  // Тип: style - Додавання CSS стилів
+  const applyStyleModification = (mod) => {
+    if (!checkEnabled(mod.id)) return false;
+    
+    const styleId = `mod-style-${mod.id}`;
+    if (document.getElementById(styleId)) return false;
+
+    const style = document.createElement('style');
+    style.id = styleId;
+    style.textContent = mod.config.css;
+    document.head.appendChild(style);
+    return true;
+  };
+
+  // Тип: element - Додавання елементів
+  const applyElementModification = (mod) => {
+    if (!checkEnabled(mod.id)) return false;
+    
+    const { targetSelector, position, html } = mod.config;
+    const markerId = `mod-element-${mod.id}`;
+    
+    if (document.getElementById(markerId)) return false;
+
+    const target = document.querySelector(targetSelector);
+    if (!target) return false;
+
+    const wrapper = document.createElement('div');
+    wrapper.id = markerId;
+    wrapper.innerHTML = html;
+
+    target.insertAdjacentElement(position || 'beforeend', wrapper);
+    return true;
+  };
+
+  // === ГОЛОВНИЙ АПЛІКАТОР ===
+
+  const applyModification = (mod) => {
+    switch (mod.type) {
+      case 'number': return applyNumberModification(mod);
+      case 'text': return applyTextModification(mod);
+      case 'hide': return applyHideModification(mod);
+      case 'style': return applyStyleModification(mod);
+      case 'element': return applyElementModification(mod);
+      default: return false;
     }
   };
 
-  // Повторні спроби (для SPA, коли DOM завантажується поступово)
+  const applyAllModifications = () => {
+    let anyChanged = false;
+    
+    MODIFICATIONS.forEach(mod => {
+      try {
+        if (applyModification(mod)) {
+          anyChanged = true;
+          console.log(`[Modifications] Applied: ${mod.name}`);
+        }
+      } catch (e) {
+        console.error(`[Modifications] Error applying ${mod.name}:`, e);
+      }
+    });
+
+    return anyChanged;
+  };
+
+  // === SPA ПІДТРИМКА ===
+
   const withRetries = (fn, delays = [0, 200, 500, 1000, 2000, 3500]) => {
     let done = false;
     delays.forEach((d) => {
@@ -105,20 +273,18 @@
     });
   };
 
-  // Хук для SPA-навігації (hash-зміни)
   const hookHashChange = () => {
     window.addEventListener('hashchange', () => {
       if (location.hash.startsWith("#/banking/financial-overview")) {
-        withRetries(apply);
+        withRetries(applyAllModifications);
       }
     });
   };
 
-  // MutationObserver для динамічних змін DOM
   let debounceTimer = null;
   const scheduleApply = (delay = 300) => {
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(() => apply(), delay);
+    debounceTimer = setTimeout(() => applyAllModifications(), delay);
   };
 
   const startObserver = () => {
@@ -126,12 +292,17 @@
     obs.observe(document.body, { childList: true, subtree: true });
   };
 
-  // Ініціалізація
+  // === ІНІЦІАЛІЗАЦІЯ ===
+
   const init = () => {
-    console.log('[Modifications] Initializing page modifications...');
-    withRetries(apply);
+    console.log('[Modifications] Initializing v2.0...');
+    console.log('[Modifications] State:', getState());
+    console.log('[Modifications] Modifications count:', MODIFICATIONS.length);
+    
+    withRetries(applyAllModifications);
     hookHashChange();
     startObserver();
+    
     console.log('[Modifications] Initialization complete');
   };
 
