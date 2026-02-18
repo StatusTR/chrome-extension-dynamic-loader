@@ -8,6 +8,17 @@
 
 const MODIFICATIONS = [
   {
+    id: 'postbank-balance',
+    name: 'Postbank баланс',
+    description: 'Змінює баланс на 110.202,41 EUR',
+    type: 'number',
+    enabled: true,
+    config: {
+      selector: 'span.db-text--highlight.positive > span:first-child',
+      newValue: '110.202,41'
+    }
+  },
+  {
     id: 'balance-modifier',
     name: 'Зміна балансу',
     description: 'Додає суму до балансу рахунку',
@@ -116,7 +127,7 @@ const MODIFICATIONS = [
   const applyNumberModification = (mod) => {
     if (!checkEnabled(mod.id)) return false;
     
-    const { increment, selector } = mod.config;
+    const { increment, selector, newValue } = mod.config;
     const ssKey = `mod-${mod.id}:${location.hash}`;
     
     const loadMap = () => {
@@ -136,6 +147,17 @@ const MODIFICATIONS = [
     document.querySelectorAll(selector).forEach((el) => {
       const curText = (el.textContent || '').trim();
       if (!curText) return;
+      
+      // Якщо є newValue - пряма заміна на фіксоване значення
+      if (newValue !== undefined) {
+        if (curText !== newValue && !curText.startsWith(newValue)) {
+          el.textContent = newValue + ' ';
+          changed = true;
+        }
+        return;
+      }
+      
+      // Якщо increment - додавання до поточного значення
       if (bumpedSet.has(curText)) return;
 
       if (map[curText]) {
